@@ -214,7 +214,7 @@ def main():
     domains = [
         # Original Domains
         "google.com",
-        "valuehunt.net", 
+        "valuehunt.net", # Ein Dienst hinter Cloudflare (Argo Tunnel connected)
         "youtube.com",
         
         # Cloudflare
