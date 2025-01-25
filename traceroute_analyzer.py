@@ -116,6 +116,24 @@ def get_last_hop_latency(traceroute_output):
             
     return 0
 
+def analyze_routing(traceroute_output):
+    """Analysiert das Routing auf DTAG-Hosts und deren Standorte"""
+    lines = traceroute_output.split('\n')
+    international_routing = False
+    
+    # Regex für DTAG Hostnames
+    dtag_pattern = r'[A-Za-z0-9-]+\.[A-Za-z0-9]+\.([A-Za-z]{2})\.NET\.DTAG\.DE'
+    
+    for line in lines:
+        match = re.search(dtag_pattern, line, re.IGNORECASE)
+        if match:
+            country_code = match.group(1).upper()
+            if country_code != 'DE':
+                international_routing = True
+                break
+    
+    return international_routing
+
 def create_html_report(results):
     """Erstellt einen HTML-Bericht mit den traceroute-Ergebnissen"""
     logging.debug("Erstelle HTML-Bericht")
@@ -157,11 +175,20 @@ def create_html_report(results):
                 background-color: #f8f8f8;
                 border-radius: 5px;
             }}
-            .high-latency {{
+            .high-latency-national {{
+                border: 2px solid #ffd700;
+                background-color: #ffffd0;
+            }}
+            .high-latency-international {{
                 border: 2px solid #ff4444;
                 background-color: #fff0f0;
             }}
-            .latency-warning {{
+            .latency-warning-national {{
+                color: #b8860b;
+                font-weight: bold;
+                margin-top: 10px;
+            }}
+            .latency-warning-international {{
                 color: #ff4444;
                 font-weight: bold;
                 margin-top: 10px;
@@ -189,14 +216,27 @@ def create_html_report(results):
     for domain, result in results.items():
         last_hop_latency = get_last_hop_latency(result)
         is_high_latency = last_hop_latency > 80
+        international_routing = analyze_routing(result)
         
-        section_class = "domain-section high-latency" if is_high_latency else "domain-section"
+        section_class = "domain-section"
+        warning_class = ""
+        warning_text = ""
+        
+        if is_high_latency:
+            if international_routing:
+                section_class += " high-latency-international"
+                warning_class = "latency-warning-international"
+                warning_text = f"⚠️ Hohe Latenz über internationales Routing: {last_hop_latency:.1f}ms"
+            else:
+                section_class += " high-latency-national"
+                warning_class = "latency-warning-national"
+                warning_text = f"⚠️ Hohe Latenz über nationales Routing: {last_hop_latency:.1f}ms"
         
         html_content += f"""
             <div class="{section_class}">
                 <h2>Traceroute zu {domain}</h2>
                 <pre>{result}</pre>
-                {f'<div class="latency-warning">⚠️ Hohe Latenz: {last_hop_latency:.1f}ms</div>' if is_high_latency else ''}
+                {f'<div class="{warning_class}">{warning_text}</div>' if is_high_latency else ''}
             </div>
         """
     
@@ -212,12 +252,12 @@ def main():
     logging.info("Starte Traceroute-Programm")
     
     domains = [
-        # Original Domains
+        # Google
         "google.com",
-        "valuehunt.net", # Ein Dienst hinter Cloudflare (Argo Tunnel connected)
         "youtube.com",
         
         # Cloudflare
+        "valuehunt.net", # Ein Dienst hinter Cloudflare (Argo Tunnel connected)
         "cloudflare.com",
         
         # Microsoft Flight Simulator
