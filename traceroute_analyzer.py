@@ -5,140 +5,189 @@ import datetime
 from pathlib import Path
 import time
 import sys
+import json
 
 # Logging-Konfiguration
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('traceroute.log', encoding='utf-8')
-    ]
+        logging.FileHandler("traceroute.log", encoding="utf-8"),
+    ],
 )
+
 
 def run_traceroute(domain):
     """Führt traceroute für eine Domain aus"""
     logging.info(f"Starte traceroute für {domain}")
-    
+
     try:
         # Wähle den richtigen Befehl je nach Betriebssystem
-        if sys.platform.startswith('win'):
-            command = ['tracert', domain]
-            encoding = 'cp437'  # Windows DOS Codepage
+        if sys.platform.startswith("win"):
+            command = ["tracert", domain]
+            encoding = "cp437"  # Windows DOS Codepage
         else:
-            command = ['traceroute', '-n', domain]  # -n für numerische Ausgabe
-            encoding = 'utf-8'
-            
+            command = ["traceroute", "-n", domain]  # -n für numerische Ausgabe
+            encoding = "utf-8"
+
         # Führe traceroute aus
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=False  # Wichtig: Raw Bytes lesen
+            universal_newlines=False,
         )
-        
+
         output_lines = []
-        
+
         # Verarbeite die Ausgabe zeilenweise
         while True:
             line = process.stdout.readline()
             if not line:
                 break
             try:
-                # Versuche die Zeile zu dekodieren
-                decoded_line = line.decode(encoding, errors='replace')
+                decoded_line = line.decode(encoding, errors="replace")
                 logging.debug(f"Traceroute Ausgabe: {decoded_line.strip()}")
                 censored_line = censor_sensitive_data(decoded_line)
                 output_lines.append(censored_line)
             except Exception as decode_error:
-                logging.warning(f"Fehler beim Dekodieren einer Zeile: {decode_error}")
+                logging.warning(
+                    f"Fehler beim Dekodieren einer Zeile: {decode_error}"
+                )
                 continue
-            
+
         process.wait()
-        
+
         if process.returncode != 0:
-            stderr = process.stderr.read().decode(encoding, errors='replace')
+            stderr = process.stderr.read().decode(encoding, errors="replace")
             logging.error(f"Traceroute Fehler: {stderr}")
             return f"Fehler bei der Ausführung: {stderr}"
-            
+
         return "".join(output_lines)
-        
+
     except Exception as e:
-        logging.error(f"Fehler bei traceroute für {domain}: {str(e)}", exc_info=True)
+        logging.error(
+            f"Fehler bei traceroute für {domain}: {str(e)}", exc_info=True
+        )
         return f"Fehler: {str(e)}"
+
 
 def censor_sensitive_data(line):
     """Zensiert sensitive Daten in der Traceroute-Ausgabe"""
-    
+
     # IPv4 Pattern für t-ipconnect.de Hosts
     line = re.sub(
-        r'([a-z0-9]+\.dip0\.t-ipconnect\.de)\s+\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]',
-        r'XXXXX.dip0.t-ipconnect.de [XXX.XXX.XXX.XXX]',
-        line
+        r"([a-z0-9]+\.dip0\.t-ipconnect\.de)\s+$$(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$$",
+        r"XXXXX.dip0.t-ipconnect.de [XXX.XXX.XXX.XXX]",
+        line,
     )
-    
+
     # IPv6 Pattern für t-ipconnect.de Hosts
     line = re.sub(
-        r'([a-z0-9]+\.dip0\.t-ipconnect\.de)\s+\[([0-9a-fA-F:]+)\]',
-        r'XXXXX.dip0.t-ipconnect.de [XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:XXXX]',
-        line
+        r"([a-z0-9]+\.dip0\.t-ipconnect\.de)\s+$$([0-9a-fA-F:]+)$$",
+        r"XXXXX.dip0.t-ipconnect.de [XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:XXXX]",
+        line,
     )
-    
+
     # Zensiere den Hostnamen selbst
     line = re.sub(
-        r'[a-z0-9]+\.dip0\.t-ipconnect\.de',
-        'XXXXX.dip0.t-ipconnect.de',
-        line
+        r"[a-z0-9]+\.dip0\.t-ipconnect\.de", "XXXXX.dip0.t-ipconnect.de", line
     )
-    
+
     return line
+
+
+def extract_ips(traceroute_output, include_second_hop=False):
+    """Extrahiert IPs aus der Traceroute-Ausgabe"""
+    ips = []
+    lines = traceroute_output.split("\n")
+
+    # Liste von IP-Bereichen, die ignoriert werden sollen
+    local_ip_patterns = [
+        r"^10\.",
+        r"^172\.(1[6-9]|2[0-9]|3[0-1])\.",
+        r"^192\.168\.",
+        r"^127\.",
+        r"^169\.254\.",
+    ]
+
+    # Beginne mit Zeile 2 (Index 1), um die Kopfzeile zu überspringen
+    # Wenn include_second_hop False ist, beginne mit Zeile 3 (Index 2)
+    start_line = 1 if include_second_hop else 2
+
+    # Verarbeite nur die Hop-Zeilen
+    for line in lines[start_line:]:
+        # Überspringe leere Zeilen
+        if not line.strip():
+            continue
+
+        # Suche nach Hop-Nummer am Anfang der Zeile
+        if not re.match(r"^\s*\d+\s", line):
+            continue
+
+        # Suche nach IPv4 Adressen
+        ip_matches = re.findall(
+            r"\b(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b", line
+        )
+
+        for ip in ip_matches:
+            # Überspringe lokale IPs
+            is_local = any(
+                re.match(pattern, ip) for pattern in local_ip_patterns
+            )
+            if not is_local:
+                ips.append(ip)
+
+    return list(dict.fromkeys(ips))  # Entferne Duplikate
+
 
 def get_last_hop_latency(traceroute_output):
     """Extrahiert die letzte Latenz aus der Traceroute-Ausgabe"""
-    lines = traceroute_output.split('\n')
-    
-    # Suche die letzte nicht-leere Zeile mit Zahlen
+    lines = traceroute_output.split("\n")
+
     for line in reversed(lines):
         if not line.strip():
             continue
-            
-        # Windows Format: "    1    <1 ms    <1 ms    <1 ms  192.168.1.1"
-        win_matches = re.findall(r'\d+\s+ms', line)
+
+        # Windows Format
+        win_matches = re.findall(r"\d+\s+ms", line)
         if win_matches:
             latencies = [int(x.split()[0]) for x in win_matches]
             return sum(latencies) / len(latencies)
-            
-        # Linux Format: " 11  172.253.71.89  5.886 ms  5.879 ms  5.769 ms"
-        linux_matches = re.findall(r'(\d+\.?\d*)\s+ms', line)
+
+        # Linux Format
+        linux_matches = re.findall(r"(\d+\.?\d*)\s+ms", line)
         if linux_matches:
             latencies = [float(x) for x in linux_matches]
             return sum(latencies) / len(latencies)
-            
+
     return 0
+
 
 def analyze_routing(traceroute_output):
     """Analysiert das Routing auf DTAG-Hosts und deren Standorte"""
-    lines = traceroute_output.split('\n')
+    lines = traceroute_output.split("\n")
     international_routing = False
-    
-    # Regex für DTAG Hostnames
-    dtag_pattern = r'[A-Za-z0-9-]+\.[A-Za-z0-9]+\.([A-Za-z]{2})\.NET\.DTAG\.DE'
-    
+
+    dtag_pattern = r"[A-Za-z0-9-]+\.[A-Za-z0-9]+\.([A-Za-z]{2})\.NET\.DTAG\.DE"
+
     for line in lines:
         match = re.search(dtag_pattern, line, re.IGNORECASE)
         if match:
             country_code = match.group(1).upper()
-            if country_code != 'DE':
+            if country_code != "DE":
                 international_routing = True
                 break
-    
+
     return international_routing
 
-def create_html_report(results):
+
+def create_html_report(results, include_route_analysis):
     """Erstellt einen HTML-Bericht mit den traceroute-Ergebnissen"""
     logging.debug("Erstelle HTML-Bericht")
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     html_content = f"""
     <!DOCTYPE html>
     <html lang="de">
@@ -205,6 +254,19 @@ def create_html_report(results):
                 overflow-x: auto;
                 white-space: pre-wrap;
             }}
+            button {{
+                background-color: #4CAF50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                margin-top: 10px;
+                font-size: 14px;
+            }}
+            button:hover {{
+                background-color: #45a049;
+            }}
         </style>
     </head>
     <body>
@@ -212,26 +274,39 @@ def create_html_report(results):
             <h1>Traceroute Report</h1>
             <div class="timestamp">Erstellt am: {current_time}</div>
     """
-    
+
     for domain, result in results.items():
         last_hop_latency = get_last_hop_latency(result)
         is_high_latency = last_hop_latency > 80
         international_routing = analyze_routing(result)
-        
+
         section_class = "domain-section"
         warning_class = ""
         warning_text = ""
-        
+
         if is_high_latency:
+            if include_route_analysis:
+                ip_list = extract_ips(result, include_second_hop=True)
+            else:
+                ip_list = extract_ips(result, include_second_hop=False)
+
+            ip_json = json.dumps(ip_list)
+
             if international_routing:
                 section_class += " high-latency-international"
                 warning_class = "latency-warning-international"
-                warning_text = f"⚠️ Hohe Latenz über internationales Routing: {last_hop_latency:.1f}ms"
+                warning_text = f"""
+                    ⚠️ Hohe Latenz über internationales Routing: {last_hop_latency:.1f}ms
+                    {'<button onclick=\'analyzeRoute(' + ip_json + ')\'>Route analysieren</button>' if include_route_analysis else ''}
+                """
             else:
                 section_class += " high-latency-national"
                 warning_class = "latency-warning-national"
-                warning_text = f"⚠️ Hohe Latenz über nationales Routing: {last_hop_latency:.1f}ms"
-        
+                warning_text = f"""
+                    ⚠️ Hohe Latenz über nationales Routing: {last_hop_latency:.1f}ms
+                    {'<button onclick=\'analyzeRoute(' + ip_json + ')\'>Route analysieren</button>' if include_route_analysis else ''}
+                """
+
         html_content += f"""
             <div class="{section_class}">
                 <h2>Traceroute zu {domain}</h2>
@@ -239,104 +314,158 @@ def create_html_report(results):
                 {f'<div class="{warning_class}">{warning_text}</div>' if is_high_latency else ''}
             </div>
         """
-    
+
+    # JavaScript nur einfügen, wenn Route-Analyse aktiviert ist
+    if include_route_analysis:
+        html_content += """
+            <script>
+            function analyzeRoute(ips) {
+                const xhr = new XMLHttpRequest();
+                const url = 'https://trans-vis.richy.sh/api/create-route';
+                
+                xhr.open('POST', url, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.setRequestHeader('Accept', 'application/json');
+                
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === 4) {
+                        if (xhr.status === 200) {
+                            try {
+                                const response = JSON.parse(xhr.responseText);
+                                if (response.view_url) {
+                                    window.open('https://trans-vis.richy.sh' + response.view_url, '_blank');
+                                }
+                            } catch (e) {
+                                console.error('Parsing error:', e);
+                                alert('Fehler beim Verarbeiten der Antwort');
+                            }
+                        } else {
+                            console.error('Request failed:', xhr.status);
+                            alert('Fehler beim Senden der Anfrage: ' + xhr.status);
+                        }
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    console.error('Request failed');
+                    alert('Netzwerkfehler beim Senden der Anfrage');
+                };
+                
+                try {
+                    xhr.send(JSON.stringify({ "ips": ips }));
+                } catch (e) {
+                    console.error('Send error:', e);
+                    alert('Fehler beim Senden der Daten');
+                }
+            }
+            </script>
+        """
+
     html_content += """
         </div>
     </body>
     </html>
     """
-    
+
     return html_content
+
 
 def main():
     logging.info("Starte Traceroute-Programm")
-    
+
+    # Benutzerabfrage für die Route-Map-Funktion
+    include_route_analysis = (
+        input(
+            "Soll die Route-Map-Funktion aktiviert werden? \n"
+            "Das bedeutet, dass die IPs inkl. des ersten DTAG Hops (DynIP) an eine Resolver API geschickt werden. (y/n):"
+        ).lower()
+        == "y"
+    )
+
     domains = [
         # Google
         "google.com",
         "youtube.com",
-        
+
         # Cloudflare
-        "valuehunt.net", # Ein Dienst hinter Cloudflare (Argo Tunnel connected)
+        "valuehunt.net",  # Ein Dienst hinter Cloudflare (Argo Tunnel connected)
         "cloudflare.com",
-        
+
         # Microsoft Flight Simulator
         "microsoft.com",
         "flightsimulator.com",
-        
+
         # GitHub
         "github.com",
-        
+
         # Steam
         "steampowered.com",
         "steamcommunity.com",
-        
-        # YouTube (bereits enthalten)
-        
+
         # ARD & ZDF Mediathek
         "ardmediathek.de",
         "zdf.de",
-        
+
         # SRF
         "srf.ch",
-        
+
         # Apex Legends
         "ea.com",
         "origin.com",
-        
+
         # Hunt Showdown
         "huntshowdown.com",
         "crytek.com",
-        
+
         # World of Tanks Console
         "wargaming.net",
         "worldoftanks.com",
-        
+
         # Path of Exile
         "pathofexile.com",
         "grindinggear.com",
-        
+
         # Escape From Tarkov
         "escapefromtarkov.com",
         "battlestate.com",
-        
+
         # Discord
         "discord.com",
         "discord.gg",
-        
+
         # Mega Upload
         "mega.nz",
         "mega.io",
-        
+
         # Square Enix
         "square-enix.com",
         "square-enix-games.com",
         
         # DDownload
-        "ddownload.com"
+        "ddownload.com",
     ]
-    
+
     results = {}
-    
+
     for domain in domains:
         logging.info(f"Verarbeite Domain: {domain}")
         try:
             results[domain] = run_traceroute(domain)
             logging.info(f"Traceroute für {domain} abgeschlossen")
-            # Kleine Pause zwischen den Traceroutes
-            time.sleep(2)
+            time.sleep(2)  # Kleine Pause zwischen den Anfragen
         except Exception as e:
             logging.error(f"Hauptfehler bei {domain}: {str(e)}", exc_info=True)
             results[domain] = f"Fehler: {str(e)}"
-    
+
     try:
-        html_content = create_html_report(results)
+        html_content = create_html_report(results, include_route_analysis)
         output_file = Path("traceroute_report.html")
-        output_file.write_text(html_content, encoding='utf-8')
+        output_file.write_text(html_content, encoding="utf-8")
         logging.info(f"Bericht wurde erstellt: {output_file.absolute()}")
     except Exception as e:
         logging.error("Fehler beim Erstellen des HTML-Berichts", exc_info=True)
         print(f"Fehler beim Erstellen des Berichts: {str(e)}")
+
 
 if __name__ == "__main__":
     main()
