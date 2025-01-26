@@ -195,74 +195,73 @@ def create_html_report(results, include_route_analysis):
     """Erstellt einen HTML-Bericht mit den traceroute-Ergebnissen"""
     logging.debug("Erstelle HTML-Bericht")
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    html_content = f"""
-    <!DOCTYPE html>
+    
+    html_start = """<!DOCTYPE html>
     <html lang="de">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Traceroute Report</title>
         <style>
-            body {{
+            body {
                 font-family: Arial, sans-serif;
                 margin: 20px;
                 background-color: #f0f0f0;
-            }}
-            .container {{
+            }
+            .container {
                 max-width: 1200px;
                 margin: 0 auto;
                 background-color: white;
                 padding: 20px;
                 border-radius: 10px;
                 box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            }}
-            h1 {{
+            }
+            h1 {
                 color: #333;
                 text-align: center;
-            }}
-            .timestamp {{
+            }
+            .timestamp {
                 text-align: center;
                 color: #666;
                 margin-bottom: 30px;
-            }}
-            .domain-section {{
+            }
+            .domain-section {
                 margin-bottom: 30px;
                 padding: 15px;
                 background-color: #f8f8f8;
                 border-radius: 5px;
-            }}
-            .high-latency-national {{
+            }
+            .high-latency-national {
                 border: 2px solid #ffd700;
                 background-color: #ffffd0;
-            }}
-            .high-latency-international {{
+            }
+            .high-latency-international {
                 border: 2px solid #ff4444;
                 background-color: #fff0f0;
-            }}
-            .latency-warning-national {{
+            }
+            .latency-warning-national {
                 color: #b8860b;
                 font-weight: bold;
                 margin-top: 10px;
-            }}
-            .latency-warning-international {{
+            }
+            .latency-warning-international {
                 color: #ff4444;
                 font-weight: bold;
                 margin-top: 10px;
-            }}
-            h2 {{
+            }
+            h2 {
                 color: #444;
                 border-bottom: 2px solid #ddd;
                 padding-bottom: 5px;
-            }}
-            pre {{
+            }
+            pre {
                 background-color: #f5f5f5;
                 padding: 15px;
                 border-radius: 5px;
                 overflow-x: auto;
                 white-space: pre-wrap;
-            }}
-            button {{
+            }
+            button {
                 background-color: #4CAF50;
                 color: white;
                 padding: 10px 20px;
@@ -271,17 +270,20 @@ def create_html_report(results, include_route_analysis):
                 cursor: pointer;
                 margin-top: 10px;
                 font-size: 14px;
-            }}
-            button:hover {{
+            }
+            button:hover {
                 background-color: #45a049;
-            }}
+            }
         </style>
     </head>
     <body>
-        <div class="container">
+        <div class="container">"""
+
+    html_header = f"""
             <h1>Traceroute Report</h1>
-            <div class="timestamp">Erstellt am: {current_time}</div>
-    """
+            <div class="timestamp">Erstellt am: {current_time}</div>"""
+
+    html_content = [html_start, html_header]
 
     for domain, result in results.items():
         last_hop_latency = get_last_hop_latency(result)
@@ -303,29 +305,29 @@ def create_html_report(results, include_route_analysis):
             if international_routing:
                 section_class += " high-latency-international"
                 warning_class = "latency-warning-international"
-                warning_text = f"""
-                    ⚠️ Hohe Latenz über internationales Routing: {last_hop_latency:.1f}ms
-                    {'<button onclick=\'analyzeRoute(' + ip_json + ')\'>Route analysieren</button>' if include_route_analysis else ''}
-                """
+                warning_msg = f"⚠️ Hohe Latenz über internationales Routing: {last_hop_latency:.1f}ms"
             else:
                 section_class += " high-latency-national"
                 warning_class = "latency-warning-national"
-                warning_text = f"""
-                    ⚠️ Hohe Latenz über nationales Routing: {last_hop_latency:.1f}ms
-                    {'<button onclick=\'analyzeRoute(' + ip_json + ')\'>Route analysieren</button>' if include_route_analysis else ''}
-                """
+                warning_msg = f"⚠️ Hohe Latenz über nationales Routing: {last_hop_latency:.1f}ms"
+            
+            if include_route_analysis:
+                warning_text = f'<div class="{warning_class}">{warning_msg}<button onclick="analyzeRoute({ip_json})">Route analysieren</button></div>'
+            else:
+                warning_text = f'<div class="{warning_class}">{warning_msg}</div>'
 
-        html_content += f"""
+        domain_section = f"""
             <div class="{section_class}">
                 <h2>Traceroute zu {domain}</h2>
                 <pre>{result}</pre>
-                {f'<div class="{warning_class}">{warning_text}</div>' if is_high_latency else ''}
-            </div>
-        """
+                {warning_text if is_high_latency else ''}
+            </div>"""
+        
+        html_content.append(domain_section)
 
-    # JavaScript nur einfügen, wenn Route-Analyse aktiviert ist
+    # JavaScript nur wenn Route-Analyse aktiviert
     if include_route_analysis:
-        html_content += """
+        html_content.append("""
             <script>
             function analyzeRoute(ips) {
                 const xhr = new XMLHttpRequest();
@@ -366,20 +368,39 @@ def create_html_report(results, include_route_analysis):
                     alert('Fehler beim Senden der Daten');
                 }
             }
-            </script>
-        """
+            </script>""")
 
-    html_content += """
+    # HTML Footer
+    html_content.append("""
         </div>
     </body>
-    </html>
-    """
+    </html>""")
 
-    return html_content
+    return "\n".join(html_content)
 
+
+def check_traceroute_installed():
+    """Prüft ob traceroute auf Linux-Systemen installiert ist"""
+    if not sys.platform.startswith("win"):
+        try:
+            subprocess.run(["which", "traceroute"], 
+                         check=True, 
+                         capture_output=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+    return True  # Auf Windows wird tracert verwendet, daher immer True
 
 def main():
     logging.info("Starte Traceroute-Programm")
+
+    # Prüfe ob traceroute installiert ist
+    if not check_traceroute_installed():
+        print("Error: traceroute ist nicht installiert!")
+        print("Bitte installieren Sie traceroute mit:")
+        print("sudo apt-get install traceroute   # Für Debian/Ubuntu")
+        print("sudo yum install traceroute       # Für RHEL/CentOS")
+        sys.exit(1)
 
     # Benutzerabfrage für die Route-Map-Funktion
     include_route_analysis = (
