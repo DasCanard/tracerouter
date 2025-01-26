@@ -145,22 +145,30 @@ def extract_ips(traceroute_output, include_second_hop=False):
 def get_last_hop_latency(traceroute_output):
     """Extrahiert die letzte Latenz aus der Traceroute-Ausgabe"""
     lines = traceroute_output.split("\n")
-
+    
     for line in reversed(lines):
         if not line.strip():
             continue
-
-        # Windows Format
-        win_matches = re.findall(r"\d+\s+ms", line)
-        if win_matches:
-            latencies = [int(x.split()[0]) for x in win_matches]
-            return sum(latencies) / len(latencies)
-
-        # Linux Format
-        linux_matches = re.findall(r"(\d+\.?\d*)\s+ms", line)
+            
+        # Linux Format (z.B. "5.746 ms  5.366 ms  5.391 ms")
+        linux_matches = re.findall(r"(\d+\.?\d*)\s*ms", line)
         if linux_matches:
-            latencies = [float(x) for x in linux_matches]
-            return sum(latencies) / len(latencies)
+            try:
+                latencies = [float(x) for x in linux_matches if float(x) > 0]
+                if latencies:
+                    return sum(latencies) / len(latencies)
+            except ValueError:
+                continue
+
+        # Windows Format (z.B. "5 ms  6 ms  5 ms")
+        win_matches = re.findall(r"(\d+)\s*ms", line)
+        if win_matches:
+            try:
+                latencies = [int(x) for x in win_matches if int(x) > 0]
+                if latencies:
+                    return sum(latencies) / len(latencies)
+            except ValueError:
+                continue
 
     return 0
 
