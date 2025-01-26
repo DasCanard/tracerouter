@@ -300,8 +300,9 @@ def create_html_report(results, include_route_analysis):
             else:
                 ip_list = extract_ips(result, include_second_hop=False)
 
-            ip_json = json.dumps(ip_list)
-
+            # JSON escapen und in String einbetten
+            ip_json = json.dumps(ip_list).replace('"', '&quot;')
+            
             if international_routing:
                 section_class += " high-latency-international"
                 warning_class = "latency-warning-international"
@@ -312,7 +313,10 @@ def create_html_report(results, include_route_analysis):
                 warning_msg = f"⚠️ Hohe Latenz über nationales Routing: {last_hop_latency:.1f}ms"
             
             if include_route_analysis:
-                warning_text = f'<div class="{warning_class}">{warning_msg}<button onclick="analyzeRoute({ip_json})">Route analysieren</button></div>'
+                warning_text = f'''<div class="{warning_class}">
+                    {warning_msg}
+                    <button onclick='analyzeRoute({json.dumps(ip_list)})'>Route analysieren</button>
+                </div>'''
             else:
                 warning_text = f'<div class="{warning_class}">{warning_msg}</div>'
 
@@ -329,43 +333,35 @@ def create_html_report(results, include_route_analysis):
     if include_route_analysis:
         html_content.append("""
             <script>
-            function analyzeRoute(ips) {
-                const xhr = new XMLHttpRequest();
-                const url = 'https://trans-vis.richy.sh/api/create-route';
-                
-                xhr.open('POST', url, true);
-                xhr.setRequestHeader('Content-Type', 'application/json');
-                xhr.setRequestHeader('Accept', 'application/json');
-                
-                xhr.onreadystatechange = function() {
-                    if (xhr.readyState === 4) {
-                        if (xhr.status === 200) {
-                            try {
-                                const response = JSON.parse(xhr.responseText);
-                                if (response.view_url) {
-                                    window.open('https://trans-vis.richy.sh' + response.view_url, '_blank');
-                                }
-                            } catch (e) {
-                                console.error('Parsing error:', e);
-                                alert('Fehler beim Verarbeiten der Antwort');
-                            }
-                        } else {
-                            console.error('Request failed:', xhr.status);
-                            alert('Fehler beim Senden der Anfrage: ' + xhr.status);
-                        }
-                    }
-                };
-                
-                xhr.onerror = function() {
-                    console.error('Request failed');
-                    alert('Netzwerkfehler beim Senden der Anfrage');
-                };
-                
+            async function analyzeRoute(ips) {
                 try {
-                    xhr.send(JSON.stringify({ "ips": ips }));
-                } catch (e) {
-                    console.error('Send error:', e);
-                    alert('Fehler beim Senden der Daten');
+                    console.log('Route Analysis triggered');
+                    console.log('IPs:', ips);
+                    
+                    const response = await fetch('https://trans-vis.richy.sh/api/create-route', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ ips: ips })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log('Success:', data);
+                    
+                    if (data.view_url) {
+                        window.open('https://trans-vis.richy.sh' + data.view_url, '_blank');
+                    } else {
+                        throw new Error('Keine view_url in der Antwort');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Fehler bei der Route-Analyse: ' + error.message);
                 }
             }
             </script>""")
