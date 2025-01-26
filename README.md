@@ -14,6 +14,7 @@ Dieses Tool wurde entwickelt, um Netzwerkprobleme und erhöhte Latenzen zu versc
 - Übersichtlicher HTML-Report mit automatischer Markierung von Latenzen >80ms
 - Detailliertes Logging für Fehleranalyse
 - Erweiterbare Liste von Ziel-Domains
+- Anzeigen der Route auf einer Weltkarte
 
 ## Voraussetzungen
 
@@ -51,6 +52,7 @@ Der generierte HTML-Report enthält:
 - Traceroute-Ergebnisse für jede Domain
 - Visuelle Hervorhebung von hohen Latenzen (>80ms)
 - Formatierte und zensierte Ausgabe für bessere Lesbarkeit
+- Die IPs der Hops für das ausgeben von einer Route Map (optional)
 
 ## Domains
 
