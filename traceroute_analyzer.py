@@ -342,7 +342,8 @@ def create_html_report(results, include_route_analysis):
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Accept': 'application/json'
+                            'Accept': 'application/json',
+                            'X-Trans-Vis-Client': 'TracerouteAnalyzer/1.0'
                         },
                         body: JSON.stringify({ ips: ips })
                     });
@@ -353,7 +354,7 @@ def create_html_report(results, include_route_analysis):
                     
                     const data = await response.json();
                     console.log('Success:', data);
-                    
+
                     if (data.view_url) {
                         window.open('https://trans-vis.richy.sh' + data.view_url, '_blank');
                     } else {
@@ -408,7 +409,6 @@ def main():
     )
 
     domains = [
-        # Google
         "google.com",
         "youtube.com",
 
